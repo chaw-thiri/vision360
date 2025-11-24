@@ -1,0 +1,18 @@
+# Vision and Deep Learning
+opencv-python>=4.8.0
+numpy>=1.24.0
+ultralytics>=8.0.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Configuration
+PyYAML>=6.0
+
+# Utilities
+scipy>=1.11.0
+Pillow>=10.0.0
+
+# Note: ROS 2 packages are installed separately via apt
+# sudo apt install ros-humble-desktop
+# sudo apt install ros-humble-cv-bridge
+# sudo apt install ros-humble-image-transport

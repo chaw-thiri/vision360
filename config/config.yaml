@@ -1,0 +1,153 @@
+# Autonomous Driving Vision System Configuration
+# TurtleBot3 Burger with Raspberry Pi Camera (Wide)
+
+# =============================================================================
+# Camera Settings
+# =============================================================================
+camera:
+  width: 640
+  height: 480
+  fps: 30
+  image_topic: "/camera/image_raw/compressed"
+  camera_info_topic: "/camera/camera_info"
+
+# =============================================================================
+# Network Settings (MacBook <-> TurtleBot)
+# =============================================================================
+network:
+  turtlebot_ip: "192.168.0.18"
+  ros_domain_id: 17
+  stream_port: 8080
+
+# =============================================================================
+# Person Detection Settings (YOLOv8)
+# =============================================================================
+person_detection:
+  model: "yolov8n.pt"
+  confidence_threshold: 0.5
+  person_class_id: 0
+  danger_zone_ratio: 0.4
+  caution_zone_ratio: 0.25
+
+# =============================================================================
+# Lane Detection Settings (for indoor taped track)
+# =============================================================================
+lane_detection:
+  roi:
+    top_ratio: 0.5
+    bottom_ratio: 1.0
+    left_ratio: 0.0
+    right_ratio: 1.0
+
+  white_tape:
+    h_low: 0
+    s_low: 0
+    v_low: 200
+    h_high: 180
+    s_high: 30
+    v_high: 255
+
+  yellow_tape:
+    h_low: 20
+    s_low: 100
+    v_low: 100
+    h_high: 35
+    s_high: 255
+    v_high: 255
+
+  blue_tape:
+    h_low: 100
+    s_low: 100
+    v_low: 100
+    h_high: 130
+    s_high: 255
+    v_high: 255
+
+  canny:
+    low_threshold: 50
+    high_threshold: 150
+
+  hough:
+    rho: 2
+    theta_degrees: 1
+    threshold: 50
+    min_line_length: 40
+    max_line_gap: 100
+
+# =============================================================================
+# Traffic Light Detection Settings
+# =============================================================================
+traffic_light:
+  roi:
+    top_ratio: 0.0
+    bottom_ratio: 0.5
+    left_ratio: 0.2
+    right_ratio: 0.8
+
+  red:
+    h_low_1: 0
+    h_high_1: 10
+    h_low_2: 160
+    h_high_2: 180
+    s_low: 100
+    s_high: 255
+    v_low: 100
+    v_high: 255
+
+  yellow:
+    h_low: 20
+    h_high: 35
+    s_low: 100
+    s_high: 255
+    v_low: 100
+    v_high: 255
+
+  green:
+    h_low: 40
+    h_high: 85
+    s_low: 100
+    s_high: 255
+    v_low: 100
+    v_high: 255
+
+  min_area: 100
+  min_circularity: 0.5
+
+# =============================================================================
+# Decision Making Settings
+# =============================================================================
+decision:
+  priorities:
+    pedestrian: 3
+    traffic_light: 2
+    lane_following: 1
+
+  lane_pid:
+    kp: 0.005
+    ki: 0.0001
+    kd: 0.001
+
+  max_steering_angle: 0.5
+
+# =============================================================================
+# TurtleBot3 Control Settings
+# =============================================================================
+turtlebot:
+  max_linear_velocity: 0.22
+  max_angular_velocity: 2.84
+  normal_speed: 0.15
+  slow_speed: 0.08
+  cmd_vel_topic: "/cmd_vel"
+  emergency_stop_distance: 0.3
+
+# =============================================================================
+# Visualization Settings
+# =============================================================================
+visualization:
+  show_windows: true
+  show_fps: true
+  show_detections: true
+  show_lanes: true
+  show_traffic_lights: true
+  record_video: false
+  output_path: "recordings/"
