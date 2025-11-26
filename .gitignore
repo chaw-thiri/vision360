@@ -1,0 +1,30 @@
+# Virtual environments
+venv/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
+
+# Environment files
+.env
+
+# Model files (large binaries not meant for git)
+yolov8n.pt
+
+# Logs and temporary files
+logs/
+*.log
+
+# Test and notebook caches
+.pytest_cache/
+.ipynb_checkpoints/
+
+# SQLite DBs
+*.sqlite3
