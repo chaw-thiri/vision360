@@ -42,9 +42,9 @@ lane_detection:
   white_tape:
     h_low: 0
     s_low: 0
-    v_low: 200
+    v_low: 180         # Lower from 200 for better low-light detection
     h_high: 180
-    s_high: 30
+    s_high: 35         # Increase from 30 to catch slightly colored white tape
     v_high: 255
 
   yellow_tape:
@@ -64,18 +64,47 @@ lane_detection:
     v_high: 255
 
   canny:
-    low_threshold: 50
-    high_threshold: 150
+    low_threshold: 40   # Lower from 50 for more edge sensitivity
+    high_threshold: 120 # Lower from 150
 
   hough:
     rho: 2
     theta_degrees: 1
-    threshold: 50
-    min_line_length: 40
-    max_line_gap: 100
+    threshold: 40       # Lower from 50 to detect more lines
+    min_line_length: 30 # Lower from 40
+    max_line_gap: 120   # Increase from 100 for better line connectivity
+
+# =============================================================================
+# Boundary Platform Detection Settings
+# =============================================================================
+boundary_detection:
+  enabled: true
+  roi:
+    top_ratio: 0.6      # Bottom 40% of frame
+    bottom_ratio: 1.0
+
+  black_platform:
+    h_low: 0
+    h_high: 180
+    s_low: 0
+    s_high: 255
+    v_low: 0
+    v_high: 50
+
+  # Zone division (0.33 = 33% from left)
+  left_zone_boundary: 0.33
+  right_zone_boundary: 0.67
+
+  # Coverage thresholds
+  block_threshold: 0.3           # 30% coverage = zone blocked
+  full_block_threshold: 0.8      # 80% all zones = completely blocked
+
+  # Avoidance strength (0.0 to 1.0)
+  avoidance_strength: 0.6
 
 # =============================================================================
 # Traffic Light Detection Settings
+# NOTE: Detection disabled in decision_maker.py (no traffic lights on track)
 # =============================================================================
 traffic_light:
   roi:
@@ -118,9 +147,10 @@ traffic_light:
 # =============================================================================
 decision:
   priorities:
-    pedestrian: 3
-    traffic_light: 2
-    lane_following: 1
+    pedestrian: 4       # Highest - safety first
+    boundary: 3         # Boundary platform avoidance
+    traffic_light: 2    # Disabled in code (no traffic lights on track)
+    lane_following: 1   # Primary mode
 
   lane_pid:
     kp: 0.005
@@ -149,5 +179,5 @@ visualization:
   show_detections: true
   show_lanes: true
   show_traffic_lights: true
-  record_video: false
+  record_video: true
   output_path: "recordings/"
