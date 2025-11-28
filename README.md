@@ -7,8 +7,11 @@ A computer vision application for autonomous driving on TurtleBot3 Burger, featu
 - **Pedestrian Detection**: YOLOv8-based real-time person detection with danger level assessment
 - **Lane Detection**: Color-based detection for indoor taped tracks (white, yellow, blue tape)
 - **Traffic Light Detection**: HSV color segmentation for red, yellow, and green lights
+- **Boundary Platform Detection**: Black platform detection with zone analysis for obstacle avoidance
+- **Manual Control Mode**: Keyboard-based manual override with arrow keys and WASD controls
 - **Decision Making**: Priority-based navigation controller with PID lane following
 - **ROS 2 Integration**: Full integration with TurtleBot3 via ROS 2 Humble
+- **Automated Setup Scripts**: Shell scripts for quick TurtleBot and vision system deployment
 
 ## System Architecture
 
@@ -94,7 +97,31 @@ Frame → HSV Convert → Color Mask → Canny Edges → Hough Lines → Left/Ri
 Frame → ROI Crop → HSV → Color Masks (R/Y/G) → Morphology → Contours → Circularity Filter → State
 ```
 
-### 4. Decision Making - Priority-Based Controller with PID
+### 4. Boundary Platform Detection - HSV Segmentation + Zone Analysis
+
+**Algorithms**:
+- HSV Color Space Thresholding for black platform detection
+- Morphological Operations (Opening/Closing)
+- Zone-based coverage analysis (left/center/right)
+
+**How it works**:
+1. **ROI Extraction**: Focus on bottom 40% of frame where boundary platforms appear
+2. **Black Detection**: HSV thresholding to isolate black platforms (V < 50)
+3. **Noise Removal**: Morphological closing fills gaps, opening removes small noise
+4. **Zone Analysis**: Divide frame into left (0-33%), center (33-67%), right (67-100%)
+5. **Coverage Calculation**: Measure percentage of each zone covered by black platforms
+6. **Navigation Decision**:
+   - Block threshold: 30% coverage = zone blocked
+   - Suggests avoidance direction based on open zones
+   - Calculates avoidance angle for smooth steering adjustment
+
+```
+Frame → ROI (bottom 40%) → HSV → Black Mask → Morphology → Zone Division → Coverage Analysis → Avoidance Angle
+                                                                  ↓
+                                                    Left | Center | Right zones
+```
+
+### 5. Decision Making - Priority-Based Controller with PID
 
 **Algorithms**:
 - Priority Queue Decision System
@@ -102,7 +129,7 @@ Frame → ROI Crop → HSV → Color Masks (R/Y/G) → Morphology → Contours �
 - Velocity Smoothing with acceleration limits
 
 **How it works**:
-1. **Priority System**: Pedestrian safety (P1) > Traffic lights (P2) > Lane following (P3)
+1. **Priority System**: Pedestrian safety (P1) > Boundary platforms (P2) > Traffic lights (P3) > Lane following (P4)
 2. **PID Lane Following**:
    - Error = lane center offset from frame center
    - Output = Kp×error + Ki×∫error + Kd×(d/dt)error
@@ -112,8 +139,10 @@ Frame → ROI Crop → HSV → Color Masks (R/Y/G) → Morphology → Contours �
                     ┌─────────────┐
 Pedestrian Status ──►│             │
                     │  Priority   │──► Linear Velocity
-Traffic Light ──────►│  Decision  │
+Boundary Platforms ─►│  Decision  │
                     │   Maker    │──► Angular Velocity
+Traffic Light ──────►│             │
+                    │             │
 Lane Offset ────────►│             │
                     └─────────────┘
                           │
@@ -130,13 +159,15 @@ Lane Offset ────────►│             │
 The Raspberry Pi Camera captures frames at 30 FPS and compresses them to JPEG format. These compressed images are published to the `/camera/image_raw/compressed` ROS 2 topic and transmitted over WiFi to the host computer.
 
 ### Step 2: Parallel Detection
-Upon receiving a frame, three detection modules run:
+Upon receiving a frame, four detection modules run:
 
 1. **Person Detector**: YOLOv8 processes the full frame, identifying any humans. For each detection, it calculates a relative distance estimate based on how much of the frame the person occupies. A person taking up 40%+ of the frame triggers an emergency stop.
 
 2. **Lane Detector**: The bottom 50% of the frame (road area) is analyzed. HSV thresholding isolates the tape color, Canny finds edges, and Hough Transform detects line segments. Lines are separated into left/right lanes based on their slope, then averaged to produce stable lane boundaries. The center offset between the lane center and frame center is calculated.
 
 3. **Traffic Light Detector**: The upper 50% of the frame is scanned for circular colored regions. Red/Yellow/Green masks are created, contours extracted, and filtered by circularity. The detected state is smoothed over multiple frames to prevent flickering.
+
+4. **Boundary Platform Detector**: The bottom 40% of the frame is analyzed for black boundary platforms. HSV thresholding isolates black regions, morphological operations clean up noise, and the frame is divided into three zones (left/center/right). Coverage percentage is calculated for each zone to determine which directions are blocked and suggest an optimal avoidance angle.
 
 ### Step 3: Decision Making
 The Decision Maker receives all detection results and applies priority-based logic:
@@ -146,6 +177,10 @@ IF pedestrian_too_close:
     → EMERGENCY STOP
 ELIF pedestrian_in_path:
     → SLOW DOWN + AVOID (turn away from pedestrian)
+ELIF all_zones_blocked_by_boundary:
+    → STOP (cannot proceed safely)
+ELIF boundary_platform_detected:
+    → ADJUST STEERING to avoid blocked zones
 ELIF red_light:
     → STOP
 ELIF yellow_light:
@@ -154,7 +189,7 @@ ELSE:
     → FOLLOW LANE using PID controller
 ```
 
-The PID controller continuously adjusts angular velocity to minimize lane center offset, keeping the robot centered in its lane.
+The PID controller continuously adjusts angular velocity to minimize lane center offset, keeping the robot centered in its lane. When boundary platforms are detected, the avoidance angle is blended with the lane-following command to navigate around obstacles while staying on track.
 
 ### Step 4: Velocity Control
 Raw velocity commands are smoothed to prevent jerky motion:
@@ -168,30 +203,69 @@ The final velocity command (Twist message) is published to `/cmd_vel`. The Turtl
 ## Project Structure
 
 ```
-capstone/
+vision360/
 ├── config/
-│   └── config.yaml           # Configuration parameters
+│   ├── config.yaml                    # Configuration parameters
+│   └── fastdds_peer_config.xml       # FastDDS peer discovery config
 ├── src/
 │   ├── detectors/
-│   │   ├── person_detector.py      # YOLOv8 pedestrian detection
-│   │   ├── lane_detector.py        # Lane line detection
-│   │   └── traffic_light_detector.py  # Traffic light detection
+│   │   ├── person_detector.py             # YOLOv8 pedestrian detection
+│   │   ├── lane_detector.py               # Lane line detection
+│   │   ├── traffic_light_detector.py      # Traffic light detection
+│   │   └── boundary_platform_detector.py  # Black platform detection
 │   ├── controller/
-│   │   ├── decision_maker.py       # Navigation decision logic
-│   │   └── velocity_controller.py  # Velocity smoothing
+│   │   ├── decision_maker.py              # Navigation decision logic
+│   │   └── velocity_controller.py         # Velocity smoothing
 │   └── ros_nodes/
-│       └── vision_node.py          # ROS 2 vision node
-├── turtlebot_setup/
-│   ├── camera_streamer.py    # Run on TurtleBot for camera streaming
-│   └── setup_turtlebot.sh    # TurtleBot setup script
-├── launch/
-│   └── vision_system.launch.py  # ROS 2 launch file
-├── scripts/
-│   └── setup_ros2_mac.sh     # MacBook setup script
-├── main.py                   # Main entry point
-├── requirements.txt          # Python dependencies
-└── README.md
+│       └── vision_node.py                 # ROS 2 vision node
+├── Shell Scripts (Setup & Control)/
+│   ├── start_turtlebot.sh            # Launch TurtleBot vision system
+│   ├── start_vision_desktop.sh       # Launch vision on desktop
+│   ├── start_manual_control.sh       # Start manual keyboard control
+│   ├── start_movement_test.sh        # Test robot movement
+│   ├── configure_network.sh          # Network setup automation
+│   ├── enable_camera_safe.sh         # Safe camera initialization
+│   ├── identify_camera.sh            # Identify connected cameras
+│   ├── check_robot_status.sh         # Check robot health
+│   └── debug_robot.sh                # Debugging utilities
+├── Test Scripts/
+│   ├── test_movement.py              # Test wheel motors
+│   ├── test_wheels.py                # Wheel diagnostics
+│   ├── test_vision_with_robot.py     # Integrated vision testing
+│   ├── manual_control.py             # Keyboard control interface
+│   ├── view_camera.py                # Camera feed viewer
+│   └── fix_camera_streamer.py        # Camera troubleshooting
+├── Documentation/
+│   ├── README.md                     # Main documentation
+│   ├── QUICK_START.md                # Quick start guide
+│   ├── README_MANUAL_CONTROL.md      # Manual control guide
+│   ├── CAMERA_SETUP.md               # Camera configuration
+│   ├── NETWORK_SETUP.md              # Network configuration
+│   └── WHEEL_TROUBLESHOOTING.md      # Wheel debugging guide
+├── main.py                           # Main entry point
+└── requirements.txt                  # Python dependencies
 ```
+
+## Quick Start
+
+For experienced users, automated scripts are available:
+
+**TurtleBot (on robot)**:
+```bash
+./start_turtlebot.sh
+```
+
+**Desktop/Laptop (vision processing)**:
+```bash
+./start_vision_desktop.sh
+```
+
+**Manual Control Mode**:
+```bash
+./start_manual_control.sh
+```
+
+See `QUICK_START.md` for detailed quick start instructions.
 
 ## Setup Instructions
 
@@ -201,6 +275,14 @@ SSH into your TurtleBot:
 ```bash
 ssh ubuntu@192.168.0.18
 ```
+
+**Option 1: Using automated script**
+```bash
+./configure_network.sh
+./start_turtlebot.sh
+```
+
+**Option 2: Manual setup**
 
 Copy the turtlebot_setup folder to the TurtleBot:
 ```bash
@@ -424,13 +506,32 @@ python main.py --mode ros
 
 ### Keyboard Controls
 
+#### Autonomous Mode Controls
+
 | Key | Action |
 |-----|--------|
-| `Q` | Quit application |
-| `S` | Emergency stop |
-| `R` | Resume from stop |
-| `D` | Toggle debug view |
-| `Space` | Pause/Resume (video mode) |
+| `Q` | Emergency stop |
+| `R` | Resume autonomous control |
+| `T` | Toggle debug view |
+| `X` | Quit application |
+| `Space` | Pause/Resume (video mode) or Resume autonomous |
+
+#### Manual Control Mode
+
+| Key | Action |
+|-----|--------|
+| `↑` or `W` | Move forward |
+| `↓` or `S` | Move backward |
+| `←` or `A` | Turn left |
+| `→` or `D` | Turn right |
+| `Space` | Stop and resume autonomous |
+| `+` / `=` | Increase manual speed |
+| `-` / `_` | Decrease manual speed |
+| `Q` | Emergency stop |
+| `R` | Resume autonomous |
+| `X` | Quit |
+
+See `README_MANUAL_CONTROL.md` for detailed manual control instructions.
 
 ## Configuration
 
@@ -449,6 +550,14 @@ lane_detection:
   white_tape:
     v_low: 200    # Increase if detecting too much
 
+# Boundary platform detection
+boundary_detection:
+  enabled: true
+  block_threshold: 0.3         # 30% coverage = zone blocked
+  avoidance_strength: 0.6      # How aggressively to avoid (0-1)
+  black_platform:
+    v_high: 50                 # Max value for black detection
+
 # Robot speeds
 turtlebot:
   normal_speed: 0.15    # m/s during normal operation
@@ -459,25 +568,100 @@ turtlebot:
 
 ### Camera not working on TurtleBot
 ```bash
-libcamera-hello  # Test camera
-sudo usermod -aG video $USER  # Fix permissions
+./identify_camera.sh      # Identify connected cameras
+./enable_camera_safe.sh   # Safe camera initialization
+libcamera-hello           # Test camera
 ```
+See `CAMERA_SETUP.md` for detailed camera troubleshooting.
+
+### Wheel/Motor issues
+```bash
+./test_wheels.py          # Test individual wheels
+./test_movement.py        # Test basic movements
+./check_robot_status.sh   # Check robot health
+```
+See `WHEEL_TROUBLESHOOTING.md` for detailed wheel diagnostics.
 
 ### ROS 2 communication issues
 ```bash
-echo $ROS_DOMAIN_ID  # Must be 17 on both devices
-ros2 topic list      # Check if topics are visible
+./configure_network.sh    # Automated network setup
+echo $ROS_DOMAIN_ID       # Must be 17 on both devices
+ros2 topic list           # Check if topics are visible
 ```
+See `NETWORK_SETUP.md` for detailed network configuration.
 
 ### Poor lane detection
 - Adjust HSV values in config for your tape color
 - Ensure adequate, consistent lighting
 - Verify ROI covers the road area
+- Use debug mode (`T` key) to visualize detection
+
+### Boundary platform not detecting
+- Ensure platforms are dark/black (V < 50 in HSV)
+- Adjust `block_threshold` in config
+- Check ROI covers bottom 40% where platforms appear
+- Verify lighting isn't creating harsh shadows
 
 ### YOLO runs slowly
 - Use GPU if available (install CUDA + GPU PyTorch)
 - Reduce frame resolution in config
 - Use `yolov8n.pt` (nano) for fastest inference
+
+### Robot not responding to commands
+```bash
+./debug_robot.sh          # Run diagnostics
+./check_robot_status.sh   # Check status
+```
+
+## Testing & Diagnostics
+
+The system includes comprehensive testing and diagnostic tools:
+
+### Vision Testing
+```bash
+# Test vision system with robot
+python test_vision_with_robot.py
+
+# View live camera feed
+python view_camera.py
+
+# Test with video file
+python main.py --mode video --input test_video.mp4
+```
+
+### Movement Testing
+```bash
+# Test basic movements
+./start_movement_test.sh
+python test_movement.py
+
+# Test individual wheels
+python test_wheels.py
+
+# Manual control testing
+./start_manual_control.sh
+python manual_control.py
+```
+
+### System Diagnostics
+```bash
+# Check overall robot status
+./check_robot_status.sh
+
+# Run full diagnostics
+./debug_robot.sh
+
+# Fix camera issues
+python fix_camera_streamer.py
+```
+
+## Additional Documentation
+
+- **QUICK_START.md** - Quick start guide for fast deployment
+- **README_MANUAL_CONTROL.md** - Detailed manual control instructions
+- **CAMERA_SETUP.md** - Camera configuration and troubleshooting
+- **NETWORK_SETUP.md** - Network configuration guide
+- **WHEEL_TROUBLESHOOTING.md** - Wheel and motor diagnostics
 
 ## Dependencies
 
