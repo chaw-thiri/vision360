@@ -29,6 +29,7 @@ class StopReason(Enum):
     YELLOW_LIGHT = "yellow_light"
     NO_LANE = "no_lane"
     MANUAL = "manual"
+    BOUNDARY_BLOCKED = "boundary_blocked"
 
 
 @dataclass
@@ -130,20 +131,25 @@ class DecisionMaker:
                person_danger: str,
                person_avoidance: Optional[str],
                lane_info: LaneInfo,
-               traffic_state: TrafficLightState) -> NavigationCommand:
+               traffic_state: TrafficLightState,
+               boundary_blocked: bool = False,
+               boundary_avoidance: float = 0.0) -> NavigationCommand:
         """
         Make navigation decision based on all inputs.
 
         Priority order:
-        1. Pedestrian safety (highest)
-        2. Traffic lights
-        3. Lane following (lowest)
+        1. Manual stop (highest)
+        2. Pedestrian safety
+        3. Boundary platform blocking
+        4. Lane following with boundary avoidance (primary mode)
 
         Args:
             person_danger: Danger level from person detector
             person_avoidance: Suggested avoidance direction
             lane_info: Lane detection results
-            traffic_state: Current traffic light state
+            traffic_state: Current traffic light state (ignored - no traffic lights)
+            boundary_blocked: All paths blocked by boundary platforms
+            boundary_avoidance: Steering adjustment for boundary avoidance (-1.0 to 1.0)
 
         Returns:
             NavigationCommand with velocities and state
@@ -185,56 +191,81 @@ class DecisionMaker:
                 message=f"Caution: Pedestrian detected, avoiding {person_avoidance or 'ahead'}"
             )
 
-        # Priority 2: Traffic lights
-        if traffic_state == TrafficLightState.RED:
+        # Priority 2: Boundary platforms completely blocking all paths
+        if boundary_blocked:
             self.lane_pid.reset()
             return NavigationCommand(
                 linear_velocity=0.0,
                 angular_velocity=0.0,
                 state=RobotState.STOPPED,
-                stop_reason=StopReason.RED_LIGHT,
-                message="Stopped at red light"
+                stop_reason=StopReason.BOUNDARY_BLOCKED,
+                message="STOPPED: All paths blocked by boundary platforms"
             )
 
-        if traffic_state == TrafficLightState.YELLOW:
-            # Slow down for yellow light
-            angular = self._compute_lane_steering(lane_info)
-            return NavigationCommand(
-                linear_velocity=self.slow_speed,
-                angular_velocity=angular,
-                state=RobotState.SLOWING,
-                stop_reason=StopReason.YELLOW_LIGHT,
-                message="Slowing for yellow light"
-            )
+        # Traffic lights disabled (no traffic lights on test track)
+        # Lines 188-208 removed - traffic_state parameter kept for compatibility
 
-        # Priority 3: Lane following
+        # Priority 3: Lane following WITH boundary platform avoidance (primary mode)
         if not lane_info.lane_detected:
-            # No lane detected - slow down and go straight
-            return NavigationCommand(
-                linear_velocity=self.slow_speed * 0.5,
-                angular_velocity=0.0,
-                state=RobotState.SLOWING,
-                stop_reason=StopReason.NO_LANE,
-                message="No lane detected - proceeding slowly"
-            )
+            # No lane detected - slow down, use boundary avoidance only
+            if abs(boundary_avoidance) > 0.1:
+                angular = boundary_avoidance * self.max_angular
+                return NavigationCommand(
+                    linear_velocity=self.slow_speed * 0.5,
+                    angular_velocity=angular,
+                    state=RobotState.SLOWING,
+                    stop_reason=StopReason.NO_LANE,
+                    message=f"No lane - navigating by boundaries"
+                )
+            else:
+                return NavigationCommand(
+                    linear_velocity=self.slow_speed * 0.5,
+                    angular_velocity=0.0,
+                    state=RobotState.SLOWING,
+                    stop_reason=StopReason.NO_LANE,
+                    message="No lane detected - proceeding slowly"
+                )
 
-        # Normal lane following
-        angular = self._compute_lane_steering(lane_info)
+        # Normal lane following WITH boundary avoidance integration
+        # Calculate lane-following steering
+        lane_angular = self._compute_lane_steering(lane_info)
+
+        # Blend lane following with boundary avoidance
+        # Boundary avoidance gets higher weight when obstacles are close
+        boundary_weight = min(abs(boundary_avoidance) * 1.5, 0.5)  # Max 50% weight
+        lane_weight = 1.0 - boundary_weight
+
+        # Convert boundary avoidance to angular velocity
+        boundary_angular = boundary_avoidance * self.max_angular
+
+        # Blend the two steering commands
+        angular = lane_angular * lane_weight + boundary_angular * boundary_weight
 
         # Adjust speed based on steering (slow down in curves)
         speed_factor = 1.0 - abs(angular) / self.max_angular * 0.5
         linear = self.normal_speed * speed_factor
 
+        # Slow down if boundaries are being avoided
+        if abs(boundary_avoidance) > 0.3:
+            linear *= 0.8
+
         # Slight speed reduction if pedestrian in caution zone
         if person_danger == 'caution':
             linear *= 0.8
+
+        # Determine message
+        if abs(boundary_avoidance) > 0.3:
+            direction = "LEFT" if boundary_avoidance < 0 else "RIGHT"
+            message = f"Following lane + avoiding boundary ({direction})"
+        else:
+            message = f"Following lane (offset: {lane_info.center_offset:+.2f})"
 
         return NavigationCommand(
             linear_velocity=linear,
             angular_velocity=angular,
             state=RobotState.MOVING,
             stop_reason=StopReason.NONE,
-            message=f"Following lane (offset: {lane_info.center_offset:+.2f})"
+            message=message
         )
 
     def _compute_lane_steering(self, lane_info: LaneInfo) -> float:

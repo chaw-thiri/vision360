@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+    <participant profile_name="turtlebot_client">
+        <rtps>
+            <builtin>
+                <discovery_config>
+                    <initialPeersList>
+                        <locator>
+                            <udpv4>
+                                <address>192.168.0.18</address>
+                                <port>7412</port>
+                            </udpv4>
+                        </locator>
+                        <locator>
+                            <udpv4>
+                                <address>192.168.0.18</address>
+                                <port>7413</port>
+                            </udpv4>
+                        </locator>
+                    </initialPeersList>
+                </discovery_config>
+            </builtin>
+        </rtps>
+    </participant>
+</profiles>

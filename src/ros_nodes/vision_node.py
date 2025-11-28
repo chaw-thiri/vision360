@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from src.detectors.person_detector import PersonDetector
 from src.detectors.lane_detector import LaneDetector
 from src.detectors.traffic_light_detector import TrafficLightDetector, TrafficLightState
+from src.detectors.boundary_platform_detector import BoundaryPlatformDetector
 from src.controller.decision_maker import DecisionMaker
 from src.controller.velocity_controller import VelocityController
 
@@ -52,6 +53,7 @@ class VisionNode(Node):
         self.person_detector = PersonDetector(self.config)
         self.lane_detector = LaneDetector(self.config)
         self.traffic_detector = TrafficLightDetector(self.config)
+        self.boundary_detector = BoundaryPlatformDetector(self.config)
 
         # Initialize controllers
         self.decision_maker = DecisionMaker(self.config)
@@ -95,6 +97,12 @@ class VisionNode(Node):
         # Visualization settings
         viz_config = self.config.get('visualization', {})
         self.show_windows = viz_config.get('show_windows', True)
+
+        # Manual control state
+        self.manual_override_active = False
+        self.manual_linear = 0.0
+        self.manual_angular = 0.0
+        self.manual_speed = 0.15  # Default manual speed
 
         # Processing rate limiter
         self.last_process_time = 0
@@ -161,24 +169,44 @@ class VisionNode(Node):
 
         lane_info = self.lane_detector.detect(frame)
 
+        # Traffic detector still runs but output is ignored (no traffic lights on track)
         traffic_state, traffic_detections = self.traffic_detector.detect(frame)
 
-        # Make decision
-        command = self.decision_maker.decide(
-            person_danger,
-            avoidance,
-            lane_info,
-            traffic_state
-        )
+        # Detect boundary platforms
+        boundary_info = self.boundary_detector.detect(frame)
 
-        # Apply velocity smoothing
-        velocity = self.velocity_controller.compute(
-            command.linear_velocity,
-            command.angular_velocity
-        )
+        # Check if manual override is active
+        if self.manual_override_active:
+            # Use manual control commands directly
+            self._publish_velocity(self.manual_linear, self.manual_angular)
+            # Create dummy command for visualization
+            from src.controller.decision_maker import NavigationCommand, RobotState, StopReason
+            command = NavigationCommand(
+                linear_velocity=self.manual_linear,
+                angular_velocity=self.manual_angular,
+                state=RobotState.MOVING if self.manual_linear != 0 or self.manual_angular != 0 else RobotState.STOPPED,
+                stop_reason=StopReason.MANUAL,
+                message="MANUAL CONTROL ACTIVE"
+            )
+        else:
+            # Make decision with boundary platform information
+            command = self.decision_maker.decide(
+                person_danger,
+                avoidance,
+                lane_info,
+                traffic_state,
+                boundary_info.all_blocked,
+                boundary_info.avoidance_angle
+            )
 
-        # Publish velocity command
-        self._publish_velocity(velocity.linear, velocity.angular)
+            # Apply velocity smoothing
+            velocity = self.velocity_controller.compute(
+                command.linear_velocity,
+                command.angular_velocity
+            )
+
+            # Publish velocity command
+            self._publish_velocity(velocity.linear, velocity.angular)
 
         # Publish status
         self._publish_status(command, person_danger, traffic_state, lane_info)
@@ -186,7 +214,8 @@ class VisionNode(Node):
         # Visualization
         if self.show_windows:
             self._visualize(frame, person_detections, person_danger,
-                          lane_info, traffic_state, traffic_detections, command)
+                          lane_info, traffic_state, traffic_detections,
+                          command, boundary_info)
 
     def _publish_velocity(self, linear: float, angular: float):
         """Publish velocity command to TurtleBot."""
@@ -215,9 +244,12 @@ class VisionNode(Node):
         self.status_pub.publish(status_msg)
 
     def _visualize(self, frame, person_detections, person_danger,
-                   lane_info, traffic_state, traffic_detections, command):
+                   lane_info, traffic_state, traffic_detections, command, boundary_info):
         """Create visualization window."""
         output = frame.copy()
+
+        # Draw boundary platform detection first (as background)
+        output = self.boundary_detector.draw_detection(output, boundary_info)
 
         # Draw lane detection
         output = self.lane_detector.draw_lanes(output, lane_info)
@@ -227,7 +259,7 @@ class VisionNode(Node):
             output, person_detections, person_danger
         )
 
-        # Draw traffic light detection
+        # Draw traffic light detection (kept for debug, but not used in decisions)
         output = self.traffic_detector.draw_detections(
             output, traffic_state, traffic_detections
         )
@@ -240,19 +272,65 @@ class VisionNode(Node):
                    (output.shape[1] - 100, 30),
                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
+        # Add keyboard controls text
+        cv2.putText(output, "Arrows:Move Space:Resume Q:Stop R:Resume X:Quit",
+                   (10, output.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                   0.4, (255, 255, 255), 1)
+
         cv2.imshow("Autonomous Driving Vision", output)
         key = cv2.waitKey(1) & 0xFF
 
         # Handle key presses
-        if key == ord('q'):
-            self.get_logger().info("Quit requested")
-            rclpy.shutdown()
-        elif key == ord('s'):
-            self.decision_maker.emergency_stop()
-            self.get_logger().warn("Emergency stop triggered!")
-        elif key == ord('r'):
+        # Arrow keys for manual control
+        if key == 82 or key == ord('w'):  # Up arrow or W
+            self.manual_override_active = True
+            self.manual_linear = self.manual_speed
+            self.manual_angular = 0.0
+            self.get_logger().info("Manual: FORWARD")
+        elif key == 84 or key == ord('s'):  # Down arrow or S
+            self.manual_override_active = True
+            self.manual_linear = -self.manual_speed
+            self.manual_angular = 0.0
+            self.get_logger().info("Manual: BACKWARD")
+        elif key == 81 or key == ord('a'):  # Left arrow or A
+            self.manual_override_active = True
+            self.manual_linear = 0.0
+            self.manual_angular = 0.5
+            self.get_logger().info("Manual: TURN LEFT")
+        elif key == 83 or key == ord('d'):  # Right arrow or D
+            self.manual_override_active = True
+            self.manual_linear = 0.0
+            self.manual_angular = -0.5
+            self.get_logger().info("Manual: TURN RIGHT")
+        elif key == ord(' '):  # Spacebar - stop manual and resume auto
+            self.manual_override_active = False
+            self.manual_linear = 0.0
+            self.manual_angular = 0.0
             self.decision_maker.resume()
-            self.get_logger().info("Resumed from stop")
+            self.get_logger().info("Resumed AUTONOMOUS control")
+        elif key == ord('q'):
+            # Q key - emergency stop
+            self.manual_override_active = False
+            self.manual_linear = 0.0
+            self.manual_angular = 0.0
+            self.decision_maker.emergency_stop()
+            self.get_logger().info("Q pressed - EMERGENCY STOP")
+        elif key == ord('r'):
+            # R key - resume autonomous
+            self.manual_override_active = False
+            self.manual_linear = 0.0
+            self.manual_angular = 0.0
+            self.decision_maker.resume()
+            self.get_logger().info("R pressed - RESUMING autonomous control")
+        elif key == ord('x'):
+            self.get_logger().info("X pressed - QUITTING")
+            rclpy.shutdown()
+        elif key == ord('+') or key == ord('='):
+            self.manual_speed = min(0.22, self.manual_speed + 0.02)
+            self.get_logger().info(f"Manual speed: {self.manual_speed:.2f} m/s")
+        elif key == ord('-') or key == ord('_'):
+            self.manual_speed = max(0.05, self.manual_speed - 0.02)
+            self.get_logger().info(f"Manual speed: {self.manual_speed:.2f} m/s")
 
     def _draw_command_info(self, frame: np.ndarray, command):
         """Draw navigation command information."""
@@ -273,17 +351,26 @@ class VisionNode(Node):
         }
         color = state_colors.get(command.state.value, (255, 255, 255))
 
+        # Determine navigation direction from angular velocity
+        if abs(command.angular_velocity) < 0.05:
+            nav_direction = "STRAIGHT"
+            dir_color = (0, 255, 0)
+        elif command.angular_velocity > 0:
+            nav_direction = "LEFT"
+            dir_color = (255, 0, 255)
+        else:
+            nav_direction = "RIGHT"
+            dir_color = (255, 255, 0)
+
         # Draw info
         cv2.putText(frame, f"State: {command.state.value.upper()}",
                    (20, height - 95), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        cv2.putText(frame, f"Linear: {command.linear_velocity:.3f} m/s",
-                   (20, height - 75), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        cv2.putText(frame, f"Angular: {command.angular_velocity:.3f} rad/s",
-                   (20, height - 55), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        cv2.putText(frame, f"Reason: {command.stop_reason.value}",
-                   (20, height - 35), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-        cv2.putText(frame, command.message[:40],
-                   (20, height - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
+        cv2.putText(frame, f"Navigate: {nav_direction}",
+                   (20, height - 70), cv2.FONT_HERSHEY_SIMPLEX, 0.5, dir_color, 2)
+        cv2.putText(frame, f"Speed: {command.linear_velocity:.3f} m/s",
+                   (20, height - 45), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+        cv2.putText(frame, f"Turn: {command.angular_velocity:+.3f} rad/s",
+                   (20, height - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
 
     def _update_fps(self):
         """Update FPS calculation."""

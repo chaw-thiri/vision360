@@ -28,3 +28,11 @@ logs/
 
 # SQLite DBs
 *.sqlite3
+
+# Video files
+*.MOV
+*.mov
+*.mp4
+*.avi
+*.mkv
+*.webm

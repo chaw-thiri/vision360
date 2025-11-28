@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from src.detectors.person_detector import PersonDetector
 from src.detectors.lane_detector import LaneDetector
 from src.detectors.traffic_light_detector import TrafficLightDetector, TrafficLightState
+from src.detectors.boundary_platform_detector import BoundaryPlatformDetector
 from src.controller.decision_maker import DecisionMaker
 from src.controller.velocity_controller import VelocityController
 
@@ -51,6 +52,9 @@ class AutonomousDrivingSystem:
         print("  - Initializing traffic light detector...")
         self.traffic_detector = TrafficLightDetector(self.config)
 
+        print("  - Initializing boundary platform detector...")
+        self.boundary_detector = BoundaryPlatformDetector(self.config)
+
         # Initialize controllers
         print("  - Initializing decision maker...")
         self.decision_maker = DecisionMaker(self.config)
@@ -60,6 +64,12 @@ class AutonomousDrivingSystem:
         viz_config = self.config.get('visualization', {})
         self.show_windows = viz_config.get('show_windows', True)
         self.show_debug = False
+
+        # Manual control state
+        self.manual_override_active = False
+        self.manual_linear = 0.0
+        self.manual_angular = 0.0
+        self.manual_speed = 0.15  # Default manual speed
 
         # FPS tracking
         self.frame_count = 0
@@ -105,24 +115,50 @@ class AutonomousDrivingSystem:
 
         lane_info = self.lane_detector.detect(frame)
 
+        # Traffic detector still runs but output is ignored (no traffic lights on track)
         traffic_state, traffic_detections = self.traffic_detector.detect(frame)
 
-        # Make decision
-        command = self.decision_maker.decide(
-            person_danger,
-            avoidance,
-            lane_info,
-            traffic_state
-        )
+        # Detect boundary platforms
+        boundary_info = self.boundary_detector.detect(frame)
 
-        # Apply velocity smoothing
-        velocity = self.velocity_controller.compute(
-            command.linear_velocity,
-            command.angular_velocity
-        )
+        # Check if manual override is active
+        if self.manual_override_active:
+            # Use manual control commands directly
+            velocity_linear = self.manual_linear
+            velocity_angular = self.manual_angular
+            # Create dummy command for visualization
+            from src.controller.decision_maker import NavigationCommand, RobotState, StopReason
+            command = NavigationCommand(
+                linear_velocity=velocity_linear,
+                angular_velocity=velocity_angular,
+                state=RobotState.MOVING if velocity_linear != 0 or velocity_angular != 0 else RobotState.STOPPED,
+                stop_reason=StopReason.MANUAL,
+                message="MANUAL CONTROL ACTIVE"
+            )
+        else:
+            # Make decision with boundary platform information
+            command = self.decision_maker.decide(
+                person_danger,
+                avoidance,
+                lane_info,
+                traffic_state,
+                boundary_info.all_blocked,
+                boundary_info.avoidance_angle
+            )
+
+            # Apply velocity smoothing
+            velocity = self.velocity_controller.compute(
+                command.linear_velocity,
+                command.angular_velocity
+            )
+            velocity_linear = velocity.linear
+            velocity_angular = velocity.angular
 
         # Create visualization
         output = frame.copy()
+
+        # Draw boundary platform detection first (as background)
+        output = self.boundary_detector.draw_detection(output, boundary_info)
 
         # Draw lane detection
         output = self.lane_detector.draw_lanes(output, lane_info)
@@ -132,13 +168,13 @@ class AutonomousDrivingSystem:
             output, person_detections, person_danger
         )
 
-        # Draw traffic light detection
+        # Draw traffic light detection (kept for debug, but not used in decisions)
         output = self.traffic_detector.draw_detections(
             output, traffic_state, traffic_detections
         )
 
         # Draw command info
-        self._draw_info(output, command, velocity.linear, velocity.angular)
+        self._draw_info(output, command, velocity_linear, velocity_angular)
 
         # Update FPS
         self._update_fps()
@@ -164,29 +200,34 @@ class AutonomousDrivingSystem:
         }
         color = state_colors.get(command.state.value, (255, 255, 255))
 
+        # Determine navigation direction from angular velocity
+        if abs(angular) < 0.05:
+            nav_direction = "STRAIGHT"
+            dir_color = (0, 255, 0)
+        elif angular > 0:
+            nav_direction = "LEFT"
+            dir_color = (255, 0, 255)
+        else:
+            nav_direction = "RIGHT"
+            dir_color = (255, 255, 0)
+
         # Info text
         y_offset = height - 110
-        line_height = 18
+        line_height = 20
 
         cv2.putText(frame, f"State: {command.state.value.upper()}",
                    (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         y_offset += line_height
 
-        cv2.putText(frame, f"Linear Vel: {linear:.3f} m/s",
-                   (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+        cv2.putText(frame, f"Navigate: {nav_direction}",
+                   (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.5, dir_color, 2)
         y_offset += line_height
 
-        cv2.putText(frame, f"Angular Vel: {angular:.3f} rad/s",
-                   (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
+        cv2.putText(frame, f"Speed: {linear:.3f} m/s",
+                   (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
         y_offset += line_height
 
-        cv2.putText(frame, f"Stop Reason: {command.stop_reason.value}",
-                   (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
-        y_offset += line_height
-
-        # Truncate message if too long
-        msg = command.message[:45] + "..." if len(command.message) > 45 else command.message
-        cv2.putText(frame, msg,
+        cv2.putText(frame, f"Turn: {angular:+.3f} rad/s",
                    (20, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 0.35, (200, 200, 200), 1)
 
         # FPS in top right
@@ -194,8 +235,8 @@ class AutonomousDrivingSystem:
                    (width - 100, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
 
         # Controls help
-        cv2.putText(frame, "Q:Quit S:Stop R:Resume D:Debug",
-                   (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1)
+        cv2.putText(frame, "Arrows:Move Space:Resume Q:Stop R:Resume X:Quit",
+                   (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
 
     def _update_fps(self):
         """Update FPS calculation."""
@@ -222,8 +263,8 @@ class AutonomousDrivingSystem:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, cam_config.get('width', 640))
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cam_config.get('height', 480))
 
-        print("Webcam started. Press 'q' to quit.")
-        print("Controls: S=Stop, R=Resume, D=Toggle Debug")
+        print("Webcam started. Press 'x' to quit.")
+        print("Controls: Q=Stop, R=Resume, X=Quit, D=Toggle Debug")
 
         try:
             while True:
@@ -245,15 +286,58 @@ class AutonomousDrivingSystem:
 
                 # Handle key presses
                 key = cv2.waitKey(1) & 0xFF
-                if key == ord('q'):
-                    break
-                elif key == ord('s'):
-                    self.decision_maker.emergency_stop()
-                    print("Emergency stop triggered!")
-                elif key == ord('r'):
+
+                # Arrow keys for manual control
+                if key == 82 or key == ord('w'):  # Up arrow or W
+                    self.manual_override_active = True
+                    self.manual_linear = self.manual_speed
+                    self.manual_angular = 0.0
+                    print("Manual: FORWARD")
+                elif key == 84 or key == ord('s'):  # Down arrow or S
+                    self.manual_override_active = True
+                    self.manual_linear = -self.manual_speed
+                    self.manual_angular = 0.0
+                    print("Manual: BACKWARD")
+                elif key == 81 or key == ord('a'):  # Left arrow or A
+                    self.manual_override_active = True
+                    self.manual_linear = 0.0
+                    self.manual_angular = 0.5
+                    print("Manual: TURN LEFT")
+                elif key == 83 or key == ord('d'):  # Right arrow or D
+                    self.manual_override_active = True
+                    self.manual_linear = 0.0
+                    self.manual_angular = -0.5
+                    print("Manual: TURN RIGHT")
+                elif key == ord(' '):  # Spacebar - stop manual and resume auto
+                    self.manual_override_active = False
+                    self.manual_linear = 0.0
+                    self.manual_angular = 0.0
                     self.decision_maker.resume()
-                    print("Resumed from stop")
-                elif key == ord('d'):
+                    print("Resumed AUTONOMOUS control")
+                elif key == ord('q'):
+                    # Q key - emergency stop
+                    self.manual_override_active = False
+                    self.manual_linear = 0.0
+                    self.manual_angular = 0.0
+                    self.decision_maker.emergency_stop()
+                    print("Q pressed - EMERGENCY STOP")
+                elif key == ord('r'):
+                    # R key - resume autonomous
+                    self.manual_override_active = False
+                    self.manual_linear = 0.0
+                    self.manual_angular = 0.0
+                    self.decision_maker.resume()
+                    print("R pressed - RESUMING autonomous control")
+                elif key == ord('x'):
+                    print("X pressed - QUITTING")
+                    break
+                elif key == ord('+') or key == ord('='):
+                    self.manual_speed = min(0.22, self.manual_speed + 0.02)
+                    print(f"Manual speed: {self.manual_speed:.2f} m/s")
+                elif key == ord('-') or key == ord('_'):
+                    self.manual_speed = max(0.05, self.manual_speed - 0.02)
+                    print(f"Manual speed: {self.manual_speed:.2f} m/s")
+                elif key == ord('t'):  # Toggle debug (changed from 'd' to 't')
                     self.show_debug = not self.show_debug
                     if not self.show_debug:
                         cv2.destroyWindow("Debug - Lane Detection")

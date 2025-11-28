@@ -155,15 +155,15 @@ class LaneDetector:
         for line in lines:
             x1, y1, x2, y2 = line[0]
 
-            # Skip near-horizontal lines
-            if abs(y2 - y1) < 10:
+            # Skip near-horizontal lines (only filter perfectly horizontal artifacts)
+            if abs(y2 - y1) < 5:
                 continue
 
             # Calculate slope
             slope = (y2 - y1) / (x2 - x1 + 1e-6)
 
             # Filter by slope angle (ignore too horizontal or vertical)
-            if abs(slope) < 0.3 or abs(slope) > 3.0:
+            if abs(slope) < 0.2 or abs(slope) > 4.0:
                 continue
 
             # Determine left or right based on position and slope
