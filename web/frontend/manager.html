@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision360 - Fleet Manager</title>
+    <link rel="stylesheet" href="/css/styles.css">
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+
+    <div class="container">
+        <div class="page-header">
+            <h1>Fleet Manager Dashboard</h1>
+            <a href="/" class="back-link">← Back to Home</a>
+        </div>
+
+        <div class="fleet-summary" id="fleetSummary">
+            <div class="summary-card">
+                <h3>Total Vehicles</h3>
+                <div class="number" id="totalVehicles">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>Active</h3>
+                <div class="number" id="activeCount">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>Idle</h3>
+                <div class="number" id="idleCount">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>Charging</h3>
+                <div class="number" id="chargingCount">-</div>
+            </div>
+            <div class="summary-card">
+                <h3>Low Battery</h3>
+                <div class="number" id="lowBatteryCount">-</div>
+            </div>
+        </div>
+
+        <div class="fleet-actions">
+            <button class="btn-primary" onclick="showAddVehicleForm()">+ Add Vehicle</button>
+        </div>
+
+        <!-- Interactive Map -->
+        <div class="map-section">
+            <h2>Fleet Location Map</h2>
+            <div id="fleetMap" class="fleet-map"></div>
+        </div>
+
+        <h2 style="margin-top: 30px; margin-bottom: 20px;">Vehicle Details</h2>
+        <div class="vehicle-grid" id="vehicleGrid"></div>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/js/common.js"></script>
+    <script src="/js/manager.js"></script>
+</body>
+</html>

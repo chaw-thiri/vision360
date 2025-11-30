@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision360 - Role Selection</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="role-selection-page">
+    <div class="container">
+        <div class="role-selection-container">
+            <div class="header">
+                <h1>Vision360</h1>
+                <p class="subtitle">Autonomous Logistics Fleet Management System</p>
+            </div>
+
+            <div class="role-cards">
+                <div class="role-card" onclick="selectRole('driver')">
+                    <div class="role-icon">
+                        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <path d="M12 6v6l4 2"/>
+                        </svg>
+                    </div>
+                    <h2>Driver</h2>
+                    <p>Control and monitor your vehicle</p>
+                    <ul class="role-features">
+                        <li>Manual/Autonomous mode control</li>
+                        <li>Live camera feed</li>
+                        <li>Real-time status monitoring</li>
+                        <li>Emergency controls</li>
+                    </ul>
+                    <button class="role-button">I am a Driver</button>
+                </div>
+
+                <div class="role-card" onclick="selectRole('manager')">
+                    <div class="role-icon">
+                        <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="7" height="7"/>
+                            <rect x="14" y="3" width="7" height="7"/>
+                            <rect x="14" y="14" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/>
+                        </svg>
+                    </div>
+                    <h2>Manager</h2>
+                    <p>Oversee your fleet operations</p>
+                    <ul class="role-features">
+                        <li>Multi-vehicle tracking</li>
+                        <li>Fleet dashboard</li>
+                        <li>Vehicle management (CRUD)</li>
+                        <li>Battery & location monitoring</li>
+                    </ul>
+                    <button class="role-button">I am a Manager</button>
+                </div>
+            </div>
+
+            <footer class="footer">
+                <p>&copy; 2025 Vision360 | TurtleBot Autonomous System</p>
+            </footer>
+        </div>
+    </div>
+
+    <script>
+        function selectRole(role) {
+            if (role === 'driver') {
+                window.location.href = '/driver.html';
+            } else if (role === 'manager') {
+                window.location.href = '/manager.html';
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision360 - Driver Interface</title>
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+    <div class="connection-status" id="connectionStatus">Connecting...</div>
+
+    <div class="container">
+        <!-- Page Header -->
+        <div class="page-header">
+            <h1>Driver Interface</h1>
+            <a href="/" class="back-link">← Back to Home</a>
+        </div>
+
+        <!-- Mode Selector -->
+        <div class="mode-selector">
+            <h3>Control Mode</h3>
+            <div class="mode-options">
+                <div class="mode-option">
+                    <input type="radio" id="manualMode" name="mode" value="manual">
+                    <label for="manualMode">Manual Mode</label>
+                </div>
+                <div class="mode-option">
+                    <input type="radio" id="autonomousMode" name="mode" value="autonomous" checked>
+                    <label for="autonomousMode">Autonomous Mode</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="driver-grid">
+            <!-- Left Column: Camera Feed -->
+            <div>
+                <div class="camera-section">
+                    <h3>Live Camera Feed</h3>
+                    <img id="cameraFeed" src="" alt="Camera feed will appear here">
+                </div>
+
+                <!-- Manual Controls (shown only in manual mode) -->
+                <div class="controls-section" id="manualControls" style="display: none;">
+                    <h3>Manual Controls</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 15px;">
+                        Use on-screen buttons or keyboard (WASD/Arrow keys)
+                    </p>
+
+                    <div class="control-pad">
+                        <div class="empty"></div>
+                        <button class="control-btn" id="btnForward" data-action="forward">↑</button>
+                        <div class="empty"></div>
+                        <button class="control-btn" id="btnLeft" data-action="left">←</button>
+                        <button class="control-btn" id="btnStop" data-action="stop">■</button>
+                        <button class="control-btn" id="btnRight" data-action="right">→</button>
+                        <div class="empty"></div>
+                        <button class="control-btn" id="btnBackward" data-action="backward">↓</button>
+                        <div class="empty"></div>
+                    </div>
+
+                    <div class="speed-control">
+                        <label for="speedSlider">
+                            Speed: <span id="speedValue">0.15</span> m/s
+                        </label>
+                        <input type="range" id="speedSlider" min="0.05" max="0.22" step="0.01" value="0.15">
+                    </div>
+
+                    <button class="emergency-stop" id="emergencyStop">
+                        🛑 EMERGENCY STOP
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Column: Status Display -->
+            <div class="status-section">
+                <h3>Robot Status</h3>
+                <div class="status-grid">
+                    <div class="status-item">
+                        <label>State</label>
+                        <div class="value" id="statusState">-</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>Linear Velocity</label>
+                        <div class="value" id="statusLinear">- m/s</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>Angular Velocity</label>
+                        <div class="value" id="statusAngular">- rad/s</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>Pedestrian Detection</label>
+                        <div class="value" id="statusPedestrian">-</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>Lane Detection</label>
+                        <div class="value" id="statusLane">-</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>Boundary Status</label>
+                        <div class="value" id="statusBoundary">-</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>FPS</label>
+                        <div class="value" id="statusFPS">-</div>
+                    </div>
+
+                    <div class="status-item">
+                        <label>Current Mode</label>
+                        <div class="value" id="currentMode">Autonomous</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/js/common.js"></script>
+    <script src="/js/driver.js"></script>
+</body>
+</html>
