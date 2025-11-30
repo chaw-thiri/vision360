@@ -30,14 +30,23 @@ person_detection:
   caution_zone_ratio: 0.25
 
 # =============================================================================
-# Lane Detection Settings (for indoor taped track)
+# Lane Detection Settings (for yellow lane following)
 # =============================================================================
 lane_detection:
   roi:
-    top_ratio: 0.5
+    top_ratio: 0.5     # Process bottom half of image
     bottom_ratio: 1.0
     left_ratio: 0.0
     right_ratio: 1.0
+
+  # Yellow lane (PRIMARY - main lane to follow)
+  yellow_tape:
+    h_low: 15          # Wider range for yellow detection
+    s_low: 80          # Lower saturation threshold
+    v_low: 80          # Lower value threshold for darker yellows
+    h_high: 40         # Include yellow-orange
+    s_high: 255
+    v_high: 255
 
   white_tape:
     h_low: 0
@@ -47,13 +56,14 @@ lane_detection:
     s_high: 35         # Increase from 30 to catch slightly colored white tape
     v_high: 255
 
-  yellow_tape:
-    h_low: 20
-    s_low: 100
-    v_low: 100
-    h_high: 35
+  # Black lane (PRIMARY - follow black lane curvature)
+  black_line:
+    h_low: 0
+    h_high: 180
+    s_low: 0
     s_high: 255
-    v_high: 255
+    v_low: 0
+    v_high: 70         # Detects dark/black lines (slightly increased for better detection)
 
   blue_tape:
     h_low: 100
@@ -64,21 +74,21 @@ lane_detection:
     v_high: 255
 
   canny:
-    low_threshold: 40   # Lower from 50 for more edge sensitivity
-    high_threshold: 120 # Lower from 150
+    low_threshold: 50
+    high_threshold: 150
 
   hough:
     rho: 2
     theta_degrees: 1
-    threshold: 40       # Lower from 50 to detect more lines
-    min_line_length: 30 # Lower from 40
-    max_line_gap: 120   # Increase from 100 for better line connectivity
+    threshold: 25       # Lower threshold for curved black lane
+    min_line_length: 30 # Shorter segments for curves
+    max_line_gap: 150   # Larger gap to connect curved segments
 
 # =============================================================================
-# Boundary Platform Detection Settings
+# Boundary Platform Detection Settings (DISABLED - only follow black lane)
 # =============================================================================
 boundary_detection:
-  enabled: true
+  enabled: false
   roi:
     top_ratio: 0.6      # Bottom 40% of frame
     bottom_ratio: 1.0
@@ -103,44 +113,13 @@ boundary_detection:
   avoidance_strength: 0.6
 
 # =============================================================================
-# Traffic Light Detection Settings
-# NOTE: Detection disabled in decision_maker.py (no traffic lights on track)
+# Traffic Sign and Light Detection Settings (YOLOv8 Fine-tuned)
 # =============================================================================
-traffic_light:
-  roi:
-    top_ratio: 0.0
-    bottom_ratio: 0.5
-    left_ratio: 0.2
-    right_ratio: 0.8
-
-  red:
-    h_low_1: 0
-    h_high_1: 10
-    h_low_2: 160
-    h_high_2: 180
-    s_low: 100
-    s_high: 255
-    v_low: 100
-    v_high: 255
-
-  yellow:
-    h_low: 20
-    h_high: 35
-    s_low: 100
-    s_high: 255
-    v_low: 100
-    v_high: 255
-
-  green:
-    h_low: 40
-    h_high: 85
-    s_low: 100
-    s_high: 255
-    v_low: 100
-    v_high: 255
-
-  min_area: 100
-  min_circularity: 0.5
+traffic_sign_light:
+  model: "traffic_sign_lights.pt"
+  confidence_threshold: 0.5
+  # Model detects: stop sign, traffic lights (red/yellow/green),
+  # road signs (bump, no parking, speed limits, etc.)
 
 # =============================================================================
 # Decision Making Settings
@@ -153,20 +132,20 @@ decision:
     lane_following: 1   # Primary mode
 
   lane_pid:
-    kp: 0.005
-    ki: 0.0001
-    kd: 0.001
+    kp: 0.008          # Increased for better curve following
+    ki: 0.0002
+    kd: 0.002
 
-  max_steering_angle: 0.5
+  max_steering_angle: 0.8  # Increased for sharper curves
 
 # =============================================================================
-# TurtleBot3 Control Settings
+# TurtleBot3 Control Settings (MINIMUM VELOCITY)
 # =============================================================================
 turtlebot:
-  max_linear_velocity: 0.22
-  max_angular_velocity: 2.84
-  normal_speed: 0.15
-  slow_speed: 0.08
+  max_linear_velocity: 0.08
+  max_angular_velocity: 1.5
+  normal_speed: 0.06      # Minimum velocity for black lane following
+  slow_speed: 0.05
   cmd_vel_topic: "/cmd_vel"
   emergency_stop_distance: 0.3
 
@@ -180,4 +159,4 @@ visualization:
   show_lanes: true
   show_traffic_lights: true
   record_video: true
-  output_path: "recordings/"
+  output_path: "/home/turtlebot/vision360/records"

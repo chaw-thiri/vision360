@@ -30,7 +30,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.detectors.person_detector import PersonDetector
 from src.detectors.lane_detector import LaneDetector
-from src.detectors.traffic_light_detector import TrafficLightDetector, TrafficLightState
+from src.detectors.traffic_sign_light_detector import TrafficSignLightDetector, TrafficLightState
 from src.detectors.boundary_platform_detector import BoundaryPlatformDetector
 from src.controller.decision_maker import DecisionMaker
 from src.controller.velocity_controller import VelocityController
@@ -52,7 +52,7 @@ class VisionNode(Node):
         self.get_logger().info("Initializing detectors...")
         self.person_detector = PersonDetector(self.config)
         self.lane_detector = LaneDetector(self.config)
-        self.traffic_detector = TrafficLightDetector(self.config)
+        self.traffic_sign_light_detector = TrafficSignLightDetector(self.config)
         self.boundary_detector = BoundaryPlatformDetector(self.config)
 
         # Initialize controllers
@@ -91,6 +91,13 @@ class VisionNode(Node):
         self.status_pub = self.create_publisher(
             String,
             '/autonomous_driving/status',
+            10
+        )
+
+        # Publisher for processed image visualization
+        self.debug_image_pub = self.create_publisher(
+            CompressedImage,
+            '/autonomous_driving/debug_image/compressed',
             10
         )
 
@@ -169,8 +176,8 @@ class VisionNode(Node):
 
         lane_info = self.lane_detector.detect(frame)
 
-        # Traffic detector still runs but output is ignored (no traffic lights on track)
-        traffic_state, traffic_detections = self.traffic_detector.detect(frame)
+        # Detect traffic lights and signs
+        traffic_state, traffic_detections, sign_detections = self.traffic_sign_light_detector.detect(frame)
 
         # Detect boundary platforms
         boundary_info = self.boundary_detector.detect(frame)
@@ -214,7 +221,7 @@ class VisionNode(Node):
         # Visualization
         if self.show_windows:
             self._visualize(frame, person_detections, person_danger,
-                          lane_info, traffic_state, traffic_detections,
+                          lane_info, traffic_state, traffic_detections, sign_detections,
                           command, boundary_info)
 
     def _publish_velocity(self, linear: float, angular: float):
@@ -244,7 +251,7 @@ class VisionNode(Node):
         self.status_pub.publish(status_msg)
 
     def _visualize(self, frame, person_detections, person_danger,
-                   lane_info, traffic_state, traffic_detections, command, boundary_info):
+                   lane_info, traffic_state, traffic_detections, sign_detections, command, boundary_info):
         """Create visualization window."""
         output = frame.copy()
 
@@ -259,9 +266,9 @@ class VisionNode(Node):
             output, person_detections, person_danger
         )
 
-        # Draw traffic light detection (kept for debug, but not used in decisions)
-        output = self.traffic_detector.draw_detections(
-            output, traffic_state, traffic_detections
+        # Draw traffic lights and road signs
+        output = self.traffic_sign_light_detector.draw_detections(
+            output, traffic_state, traffic_detections, sign_detections
         )
 
         # Draw command info
@@ -276,6 +283,17 @@ class VisionNode(Node):
         cv2.putText(output, "Arrows:Move Space:Resume Q:Stop R:Resume X:Quit",
                    (10, output.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX,
                    0.4, (255, 255, 255), 1)
+
+        # Publish the processed image for remote viewing
+        try:
+            _, encoded_img = cv2.imencode('.jpg', output, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            debug_msg = CompressedImage()
+            debug_msg.header.stamp = self.get_clock().now().to_msg()
+            debug_msg.format = "jpeg"
+            debug_msg.data = encoded_img.tobytes()
+            self.debug_image_pub.publish(debug_msg)
+        except Exception as e:
+            self.get_logger().error(f"Error publishing debug image: {e}")
 
         cv2.imshow("Autonomous Driving Vision", output)
         key = cv2.waitKey(1) & 0xFF

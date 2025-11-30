@@ -117,36 +117,16 @@ class PersonDetector:
 
         Returns:
             Tuple of (danger_level, closest_person, avoidance_direction)
-            danger_level: 'safe', 'caution', 'danger', 'stop'
-            avoidance_direction: 'left', 'right', or None
+            danger_level: 'safe' or 'stop'
+            avoidance_direction: Always None (no avoidance)
         """
         if not detections:
             return 'safe', None, None
 
+        # If ANY person is detected, STOP immediately
         closest = detections[0]
 
-        # Check if person is in center path
-        center_left = frame_width * 0.3
-        center_right = frame_width * 0.7
-        person_in_path = center_left <= closest.center[0] <= center_right
-
-        # Determine danger level based on size
-        if closest.relative_size >= self.danger_zone_ratio:
-            level = 'stop' if person_in_path else 'danger'
-        elif closest.relative_size >= self.caution_zone_ratio:
-            level = 'danger' if person_in_path else 'caution'
-        else:
-            level = 'caution' if person_in_path else 'safe'
-
-        # Suggest avoidance direction
-        avoidance = None
-        if level in ['danger', 'stop'] and person_in_path:
-            if closest.center[0] < frame_width // 2:
-                avoidance = 'right'
-            else:
-                avoidance = 'left'
-
-        return level, closest, avoidance
+        return 'stop', closest, None
 
     def draw_detections(self, frame: np.ndarray,
                         detections: List[DetectedPerson],

@@ -60,7 +60,20 @@ class LaneDetector:
 
     def _setup_color_ranges(self):
         """Setup HSV color ranges for tape detection."""
-        # White tape
+        # Black lines (for vertical lane boundaries)
+        black = self.config.get('black_line', {})
+        self.black_low = np.array([
+            black.get('h_low', 0),
+            black.get('s_low', 0),
+            black.get('v_low', 0)
+        ])
+        self.black_high = np.array([
+            black.get('h_high', 180),
+            black.get('s_high', 255),
+            black.get('v_high', 60)
+        ])
+
+        # White tape (backup)
         white = self.config.get('white_tape', {})
         self.white_low = np.array([
             white.get('h_low', 0),
@@ -73,7 +86,7 @@ class LaneDetector:
             white.get('v_high', 255)
         ])
 
-        # Yellow tape
+        # Yellow tape (backup)
         yellow = self.config.get('yellow_tape', {})
         self.yellow_low = np.array([
             yellow.get('h_low', 20),
@@ -86,7 +99,7 @@ class LaneDetector:
             yellow.get('v_high', 255)
         ])
 
-        # Blue tape
+        # Blue tape (backup)
         blue = self.config.get('blue_tape', {})
         self.blue_low = np.array([
             blue.get('h_low', 100),
@@ -107,24 +120,18 @@ class LaneDetector:
         return roi, roi_top_y
 
     def _detect_tape_colors(self, frame: np.ndarray) -> np.ndarray:
-        """Detect tape colors using HSV thresholding."""
+        """Detect black lane only."""
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
 
-        # Detect each tape color
-        white_mask = cv2.inRange(hsv, self.white_low, self.white_high)
-        yellow_mask = cv2.inRange(hsv, self.yellow_low, self.yellow_high)
-        blue_mask = cv2.inRange(hsv, self.blue_low, self.blue_high)
+        # Detect BLACK lane ONLY (primary and only)
+        black_mask = cv2.inRange(hsv, self.black_low, self.black_high)
 
-        # Combine masks
-        combined = cv2.bitwise_or(white_mask, yellow_mask)
-        combined = cv2.bitwise_or(combined, blue_mask)
-
-        # Clean up noise
+        # Clean up noise with morphological operations
         kernel = np.ones((5, 5), np.uint8)
-        combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel)
-        combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN, kernel)
+        black_mask = cv2.morphologyEx(black_mask, cv2.MORPH_CLOSE, kernel)
+        black_mask = cv2.morphologyEx(black_mask, cv2.MORPH_OPEN, kernel)
 
-        return combined
+        return black_mask
 
     def _detect_edges(self, frame: np.ndarray) -> np.ndarray:
         """Detect edges using Canny edge detection."""
@@ -147,34 +154,33 @@ class LaneDetector:
 
     def _separate_lanes(self, lines: np.ndarray,
                         frame_width: int) -> Tuple[List, List]:
-        """Separate detected lines into left and right lanes."""
-        left_lines = []
-        right_lines = []
-        center_x = frame_width // 2
+        """For black lane following, just collect all valid lines as center lane."""
+        center_lines = []
 
         for line in lines:
             x1, y1, x2, y2 = line[0]
 
-            # Skip near-horizontal lines (only filter perfectly horizontal artifacts)
-            if abs(y2 - y1) < 5:
+            # Skip horizontal lines (artifacts)
+            if abs(y2 - y1) < 10:
                 continue
 
             # Calculate slope
-            slope = (y2 - y1) / (x2 - x1 + 1e-6)
+            dx = x2 - x1
+            dy = y2 - y1
 
-            # Filter by slope angle (ignore too horizontal or vertical)
-            if abs(slope) < 0.2 or abs(slope) > 4.0:
+            if abs(dx) < 1:
                 continue
 
-            # Determine left or right based on position and slope
-            mid_x = (x1 + x2) / 2
+            slope = dy / dx
 
-            if slope < 0 and mid_x < center_x:
-                left_lines.append(line[0])
-            elif slope > 0 and mid_x > center_x:
-                right_lines.append(line[0])
+            # Accept lines with any reasonable slope (curved lane)
+            if abs(slope) < 0.2 or abs(slope) > 10.0:
+                continue
 
-        return left_lines, right_lines
+            center_lines.append(line[0])
+
+        # Return all lines as "left" lane (we'll treat it as center)
+        return center_lines, []
 
     def _average_lane(self, lines: List, frame_height: int) -> Optional[np.ndarray]:
         """Average multiple lines into single lane line."""
@@ -191,9 +197,11 @@ class LaneDetector:
         if len(x_coords) < 2:
             return None
 
-        # Fit polynomial
+        # Fit polynomial (x as function of y for lane lines)
         try:
             poly = np.polyfit(y_coords, x_coords, 1)
+
+            # Draw line from bottom to middle of ROI
             y_start = frame_height
             y_end = int(frame_height * 0.6)
 
@@ -208,42 +216,32 @@ class LaneDetector:
                            right_lane: Optional[np.ndarray],
                            frame_width: int,
                            frame_height: int) -> Tuple[float, float]:
-        """Calculate steering angle and center offset."""
+        """Calculate steering to follow black lane curvature."""
         center_x = frame_width // 2
         bottom_y = frame_height
+        mid_y = int(frame_height * 0.7)  # Look ahead point
 
-        # Get lane positions at bottom of frame
-        left_x = None
-        right_x = None
-
+        # For black lane following, left_lane contains the detected lane
         if left_lane is not None:
             x1, y1, x2, y2 = left_lane[0]
-            # Extrapolate to bottom
+
+            # Calculate where the lane is at the look-ahead point
             if y1 != y2:
                 slope = (x2 - x1) / (y2 - y1 + 1e-6)
-                left_x = int(x1 + slope * (bottom_y - y1))
+                # Get x position at look-ahead point
+                lane_x = int(x1 + slope * (mid_y - y1))
+            else:
+                lane_x = x1
 
-        if right_lane is not None:
-            x1, y1, x2, y2 = right_lane[0]
-            if y1 != y2:
-                slope = (x2 - x1) / (y2 - y1 + 1e-6)
-                right_x = int(x1 + slope * (bottom_y - y1))
+            # Calculate offset from center
+            offset = (lane_x - center_x) / center_x  # Normalized -1 to 1
 
-        # Calculate lane center
-        if left_x is not None and right_x is not None:
-            lane_center = (left_x + right_x) // 2
-        elif left_x is not None:
-            lane_center = left_x + 150  # Assume lane is ~300 pixels wide
-        elif right_x is not None:
-            lane_center = right_x - 150
+            # Calculate steering angle to follow the lane
+            steering = -offset * 1.0  # Increased steering response for curves
         else:
-            lane_center = center_x  # No lanes detected
-
-        # Calculate offset (negative = left of center, positive = right)
-        offset = (lane_center - center_x) / center_x  # Normalized -1 to 1
-
-        # Calculate steering angle (proportional to offset)
-        steering = -offset * 0.5  # Scale factor
+            # No lane detected
+            offset = 0.0
+            steering = 0.0
 
         return offset, steering
 

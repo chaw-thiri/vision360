@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from src.detectors.person_detector import PersonDetector
 from src.detectors.lane_detector import LaneDetector
-from src.detectors.traffic_light_detector import TrafficLightDetector, TrafficLightState
+from src.detectors.traffic_sign_light_detector import TrafficSignLightDetector, TrafficLightState
 from src.detectors.boundary_platform_detector import BoundaryPlatformDetector
 from src.controller.decision_maker import DecisionMaker
 from src.controller.velocity_controller import VelocityController
@@ -49,8 +49,8 @@ class AutonomousDrivingSystem:
         print("  - Initializing lane detector...")
         self.lane_detector = LaneDetector(self.config)
 
-        print("  - Initializing traffic light detector...")
-        self.traffic_detector = TrafficLightDetector(self.config)
+        print("  - Initializing traffic sign and light detector...")
+        self.traffic_sign_light_detector = TrafficSignLightDetector(self.config)
 
         print("  - Initializing boundary platform detector...")
         self.boundary_detector = BoundaryPlatformDetector(self.config)
@@ -115,8 +115,8 @@ class AutonomousDrivingSystem:
 
         lane_info = self.lane_detector.detect(frame)
 
-        # Traffic detector still runs but output is ignored (no traffic lights on track)
-        traffic_state, traffic_detections = self.traffic_detector.detect(frame)
+        # Detect traffic lights and signs
+        traffic_state, traffic_detections, sign_detections = self.traffic_sign_light_detector.detect(frame)
 
         # Detect boundary platforms
         boundary_info = self.boundary_detector.detect(frame)
@@ -168,9 +168,9 @@ class AutonomousDrivingSystem:
             output, person_detections, person_danger
         )
 
-        # Draw traffic light detection (kept for debug, but not used in decisions)
-        output = self.traffic_detector.draw_detections(
-            output, traffic_state, traffic_detections
+        # Draw traffic lights and road signs
+        output = self.traffic_sign_light_detector.draw_detections(
+            output, traffic_state, traffic_detections, sign_detections
         )
 
         # Draw command info
