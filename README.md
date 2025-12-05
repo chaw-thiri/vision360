@@ -13,15 +13,17 @@ The vision system requires **TWO files** running simultaneously:
 ```
 vision360/
 ├── main.py                      ⭐ Vision processing (runs on desktop)
-└── scripts/
-    └── start_turtlebot.sh       ⭐ Robot control (runs on TurtleBot)
+├── scripts/
+│   └── start_turtlebot.sh       ⭐ Robot control (runs on TurtleBot)
+└── web/
+    └── start_web_interface.sh   🌐 Web control interface (optional)
 ```
 
 ### 🤖 Step 1: Start TurtleBot (On Robot via SSH)
 
 ```bash
-# SSH to TurtleBot
-ssh turtlebot@192.168.0.18
+# SSH to TurtleBot (replace <TURTLEBOT_IP> with your robot's IP)
+ssh turtlebot@<TURTLEBOT_IP>
 
 # Navigate to project
 cd ~/vision360
@@ -29,6 +31,8 @@ cd ~/vision360
 # Start robot base and camera
 ./scripts/start_turtlebot.sh
 ```
+
+**Find TurtleBot IP:** On the robot, run `hostname -I` or check your router.
 
 **This starts:**
 - ✓ Robot motors (OpenCR controller)
@@ -63,7 +67,7 @@ python3 main.py --mode ros
 # ==========================================
 # Terminal 1 - TurtleBot (Raspberry Pi)
 # ==========================================
-ssh turtlebot@192.168.0.18
+ssh turtlebot@<TURTLEBOT_IP>  # Use your robot's IP address
 cd ~/vision360
 ./scripts/start_turtlebot.sh
 
@@ -117,6 +121,31 @@ python3 main.py --mode video --input data/road_test.mp4
 ./scripts/start_vision_desktop.sh webcam             # Webcam mode (no robot needed)
 ./scripts/start_vision_desktop.sh video <file.mp4>   # Video mode (no robot needed)
 ```
+
+---
+
+## 🌐 Web Interface (Optional)
+
+Control and monitor TurtleBot through a web browser with live camera feed, manual controls, and fleet management.
+
+```bash
+# Install web dependencies
+cd web && pip3 install -r requirements-web.txt
+
+# Start web server (on TurtleBot)
+./start_web_interface.sh
+
+# Access in browser (from any device on the network)
+http://<TURTLEBOT_IP>:8000
+```
+
+**Features:**
+- Live camera streaming
+- Web-based manual control (WASD/arrows)
+- Real-time status monitoring
+- Fleet management dashboard
+
+See **[web/README.md](web/README.md)** for detailed setup and usage.
 
 ---
 
@@ -222,6 +251,10 @@ vision360/
 │   ├── detectors/             🔍 Detection modules
 │   ├── controller/            🎮 Navigation logic
 │   └── ros_nodes/             📡 ROS integration
+├── web/                       🌐 Web interface
+│   ├── backend/               🔧 FastAPI server
+│   ├── frontend/              💻 HTML/CSS/JS
+│   └── start_web_interface.sh 🚀 Web launcher
 ├── tests/                     🧪 Test scripts
 ├── docs/                      📖 Documentation
 └── requirements.txt           📦 Dependencies
@@ -237,6 +270,7 @@ vision360/
 - ✅ **Boundary Detection** - Black platform detection for obstacle avoidance
 - ✅ **PID Control** - Smooth lane following with velocity smoothing
 - ✅ **Manual Override** - Keyboard control for testing
+- ✅ **Web Interface** - Browser-based control, live camera feed, and fleet management
 - ✅ **ROS 2 Integration** - Full TurtleBot3 Humble support
 
 ---
@@ -244,6 +278,7 @@ vision360/
 ## 📚 Additional Documentation
 
 - **[DETAILED_README.md](DETAILED_README.md)** - Complete technical documentation, algorithms, and troubleshooting
+- **[web/README.md](web/README.md)** - Web interface setup and usage guide
 - **[docs/QUICK_START.md](docs/QUICK_START.md)** - Step-by-step setup guide
 - **[docs/CAMERA_SETUP.md](docs/CAMERA_SETUP.md)** - Camera troubleshooting
 - **[docs/NETWORK_SETUP.md](docs/NETWORK_SETUP.md)** - Network configuration

@@ -32,9 +32,10 @@ pip3 install -r requirements-web.txt
 ### 3. Access the Interface
 Open your browser and navigate to:
 ```
-http://192.168.0.18:8000
+http://<TURTLEBOT_IP>:8000
 ```
-(Replace with your TurtleBot's IP address)
+
+**Find TurtleBot IP:** On the robot, run `hostname -I` or check your router.
 
 ## Architecture
 
@@ -115,4 +116,4 @@ Mock vehicles display:
 
 **Controls not working**: Check mode is set to "Manual" and WebSocket is connected
 
-**Connection issues**: Verify TurtleBot and computer are on same network (192.168.0.x)
+**Connection issues**: Verify TurtleBot and computer are on same network
