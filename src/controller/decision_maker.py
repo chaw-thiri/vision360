@@ -10,7 +10,7 @@ from enum import Enum
 
 from ..detectors.person_detector import DetectedPerson
 from ..detectors.lane_detector import LaneInfo
-from ..detectors.traffic_light_detector import TrafficLightState, DetectedTrafficLight
+from ..detectors.traffic_sign_light_detector import TrafficLightState, DetectedTrafficLight, DetectedSign, SignType
 
 
 class RobotState(Enum):
@@ -133,13 +133,27 @@ class DecisionMaker:
         self.total_turn_angle = 0.0
         self.target_turn_angle = 1.5708  # 90 degrees in radians (π/2)
 
+        # Traffic light handling
+        traffic_config = config.get('traffic_sign_light', {})
+        self.red_light_stop_duration = traffic_config.get('red_light_stop_duration', 10.0)
+        self.red_light_stop_start = None
+        self.speed_limit_40 = traffic_config.get('speed_limit_40', 0.04)
+        self.speed_limit_90 = traffic_config.get('speed_limit_90', 0.06)
+        self.speed_limit_120 = traffic_config.get('speed_limit_120', 0.08)
+        self.green_light_speed = traffic_config.get('green_light_speed', 0.08)
+
+        # Current speed limit and traffic state
+        self.current_speed_limit = None
+        self.last_detected_signs = []
+
     def decide(self,
                person_danger: str,
                person_avoidance: Optional[str],
                lane_info: LaneInfo,
                traffic_state: TrafficLightState,
                boundary_blocked: bool = False,
-               boundary_avoidance: float = 0.0) -> NavigationCommand:
+               boundary_avoidance: float = 0.0,
+               detected_signs: List[DetectedSign] = None) -> NavigationCommand:
         """
         Make navigation decision based on all inputs.
 
@@ -173,6 +187,7 @@ class DecisionMaker:
         # Priority 1: Pedestrian safety - STOP IMMEDIATELY if any person detected
         if person_danger == 'stop':
             self.lane_pid.reset()
+            self.red_light_stop_start = None  # Reset traffic light timer
             return NavigationCommand(
                 linear_velocity=0.0,
                 angular_velocity=0.0,
@@ -181,7 +196,47 @@ class DecisionMaker:
                 message="EMERGENCY STOP: Person detected!"
             )
 
-        # Priority 2: Boundary platforms completely blocking all paths
+        # Priority 2: Red Traffic Light - Stop for 10 seconds
+        if traffic_state == TrafficLightState.RED:
+            current_time = time.time()
+
+            # Start timer if not already started
+            if self.red_light_stop_start is None:
+                self.red_light_stop_start = current_time
+
+            # Check if 10 seconds have passed
+            elapsed = current_time - self.red_light_stop_start
+            remaining = self.red_light_stop_duration - elapsed
+
+            if remaining > 0:
+                self.lane_pid.reset()
+                return NavigationCommand(
+                    linear_velocity=0.0,
+                    angular_velocity=0.0,
+                    state=RobotState.STOPPED,
+                    stop_reason=StopReason.RED_LIGHT,
+                    message=f"RED LIGHT - Stopped ({remaining:.1f}s remaining)"
+                )
+            else:
+                # 10 seconds passed, can proceed
+                self.red_light_stop_start = None
+        else:
+            # No red light, reset timer
+            self.red_light_stop_start = None
+
+        # Process detected signs for speed limits and informational signs
+        if detected_signs:
+            self.last_detected_signs = detected_signs
+            for sign in detected_signs:
+                # Update speed limit based on detected signs
+                if sign.sign_type == SignType.SPEED_LIMIT_40:
+                    self.current_speed_limit = self.speed_limit_40
+                elif sign.sign_type == SignType.SPEED_LIMIT_90:
+                    self.current_speed_limit = self.speed_limit_90
+                elif sign.sign_type == SignType.SPEED_LIMIT_120:
+                    self.current_speed_limit = self.speed_limit_120
+
+        # Priority 3: Boundary platforms completely blocking all paths
         if boundary_blocked:
             self.lane_pid.reset()
             return NavigationCommand(
@@ -192,10 +247,7 @@ class DecisionMaker:
                 message="STOPPED: All paths blocked by boundary platforms"
             )
 
-        # Traffic lights disabled (no traffic lights on test track)
-        # Lines 188-208 removed - traffic_state parameter kept for compatibility
-
-        # Priority 3: Lane following (primary mode)
+        # Priority 4: Lane following (primary mode)
         if not lane_info.lane_detected:
             # No lane detected - execute 90-degree RIGHT turn
             current_time = time.time()
@@ -250,11 +302,55 @@ class DecisionMaker:
         # Calculate lane-following steering
         lane_angular = self._compute_lane_steering(lane_info)
 
+        # Determine target speed based on traffic lights and speed limits
+        target_speed = self.normal_speed
+
+        # Green light - go faster
+        if traffic_state == TrafficLightState.GREEN:
+            target_speed = self.green_light_speed
+            speed_message = "GREEN light - going faster"
+        # Speed limit detected - adjust speed
+        elif self.current_speed_limit is not None:
+            target_speed = self.current_speed_limit
+            if self.current_speed_limit == self.speed_limit_40:
+                speed_message = "Speed Limit 40 km/h"
+            elif self.current_speed_limit == self.speed_limit_90:
+                speed_message = "Speed Limit 90 km/h"
+            elif self.current_speed_limit == self.speed_limit_120:
+                speed_message = "Speed Limit 120 km/h"
+            else:
+                speed_message = ""
+        else:
+            speed_message = ""
+
         # Adjust speed based on steering (slow down in curves)
         speed_factor = 1.0 - abs(lane_angular) / self.max_angular * 0.5
-        linear = self.normal_speed * speed_factor
+        linear = target_speed * speed_factor
 
-        message = f"Following black lane (offset: {lane_info.center_offset:+.2f})"
+        # Build message with detected signs
+        message = f"Following black lane"
+        if speed_message:
+            message += f" | {speed_message}"
+
+        # Add informational signs to message
+        if self.last_detected_signs:
+            info_signs = []
+            for sign in self.last_detected_signs:
+                if sign.sign_type == SignType.NO_PARKING:
+                    info_signs.append("No Parking")
+                elif sign.sign_type == SignType.NO_STOPPING:
+                    info_signs.append("No Stopping")
+                elif sign.sign_type == SignType.NO_U_TURN:
+                    info_signs.append("No U-Turn")
+                elif sign.sign_type == SignType.BUMP:
+                    info_signs.append("Bump Ahead")
+                elif sign.sign_type == SignType.ROAD_WORK:
+                    info_signs.append("Road Work")
+                elif sign.sign_type == SignType.PEDESTRIAN:
+                    info_signs.append("Pedestrian Zone")
+
+            if info_signs:
+                message += f" | Signs: {', '.join(info_signs)}"
 
         return NavigationCommand(
             linear_velocity=linear,

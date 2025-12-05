@@ -38,7 +38,7 @@ class PersonDetector:
             config: Configuration dictionary from config.yaml
         """
         self.config = config.get('person_detection', {})
-        self.model_name = self.config.get('model', 'yolov8n.pt')
+        self.model_name = self.config.get('model', 'models/yolov8n.pt')
         self.confidence_threshold = self.config.get('confidence_threshold', 0.5)
         self.person_class_id = self.config.get('person_class_id', 0)
         self.danger_zone_ratio = self.config.get('danger_zone_ratio', 0.4)

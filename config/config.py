@@ -9,7 +9,7 @@ FRAME_HEIGHT = 480
 FPS = 30
 
 # Person detection settings
-PERSON_MODEL = "yolov8n.pt"  # YOLOv8 nano model (fast)
+PERSON_MODEL = "models/yolov8n.pt"  # YOLOv8 nano model (fast)
 PERSON_CONFIDENCE_THRESHOLD = 0.5
 PERSON_CLASS_ID = 0  # COCO class ID for person
 

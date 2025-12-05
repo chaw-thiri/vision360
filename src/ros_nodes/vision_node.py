@@ -52,7 +52,7 @@ class VisionNode(Node):
         self.get_logger().info("Initializing detectors...")
         self.person_detector = PersonDetector(self.config)
         self.lane_detector = LaneDetector(self.config)
-        self.traffic_sign_light_detector = TrafficSignLightDetector(self.config)
+        self.traffic_sign_light_detector = TrafficSignLightDetector(self.config, mode='ros')
         self.boundary_detector = BoundaryPlatformDetector(self.config)
 
         # Initialize controllers
@@ -196,14 +196,15 @@ class VisionNode(Node):
                 message="MANUAL CONTROL ACTIVE"
             )
         else:
-            # Make decision with boundary platform information
+            # Make decision with boundary platform information and traffic signs
             command = self.decision_maker.decide(
                 person_danger,
                 avoidance,
                 lane_info,
                 traffic_state,
                 boundary_info.all_blocked,
-                boundary_info.avoidance_angle
+                boundary_info.avoidance_angle,
+                sign_detections
             )
 
             # Apply velocity smoothing

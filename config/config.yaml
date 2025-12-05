@@ -23,7 +23,7 @@ network:
 # Person Detection Settings (YOLOv8)
 # =============================================================================
 person_detection:
-  model: "yolov8n.pt"
+  model: "models/yolov8n.pt"
   confidence_threshold: 0.5
   person_class_id: 0
   danger_zone_ratio: 0.4
@@ -116,7 +116,8 @@ boundary_detection:
 # Traffic Sign and Light Detection Settings (YOLOv8 Fine-tuned)
 # =============================================================================
 traffic_sign_light:
-  model: "traffic_sign_lights.pt"
+  model_webcam: "models/traffic6.pt"           # For webcam/ROS input (turtlebot size)
+  model_video: "models/traffic_sign_lights.pt"  # For video file input
   confidence_threshold: 0.5
   # Model detects: stop sign, traffic lights (red/yellow/green),
   # road signs (bump, no parking, speed limits, etc.)

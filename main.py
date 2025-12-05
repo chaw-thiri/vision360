@@ -36,11 +36,18 @@ from src.controller.velocity_controller import VelocityController
 class AutonomousDrivingSystem:
     """Main autonomous driving vision system."""
 
-    def __init__(self, config_path: str = None):
-        """Initialize the system."""
+    def __init__(self, config_path: str = None, mode: str = 'webcam'):
+        """Initialize the system.
+
+        Args:
+            config_path: Path to configuration file
+            mode: Operation mode ('webcam', 'video', 'image', 'ros')
+        """
         self.config = self._load_config(config_path)
+        self.mode = mode
 
         print("Initializing Autonomous Driving Vision System...")
+        print(f"Mode: {mode}")
 
         # Initialize detectors
         print("  - Loading person detector (YOLOv8)...")
@@ -50,7 +57,7 @@ class AutonomousDrivingSystem:
         self.lane_detector = LaneDetector(self.config)
 
         print("  - Initializing traffic sign and light detector...")
-        self.traffic_sign_light_detector = TrafficSignLightDetector(self.config)
+        self.traffic_sign_light_detector = TrafficSignLightDetector(self.config, mode=mode)
 
         print("  - Initializing boundary platform detector...")
         self.boundary_detector = BoundaryPlatformDetector(self.config)
@@ -136,14 +143,15 @@ class AutonomousDrivingSystem:
                 message="MANUAL CONTROL ACTIVE"
             )
         else:
-            # Make decision with boundary platform information
+            # Make decision with boundary platform information and traffic signs
             command = self.decision_maker.decide(
                 person_danger,
                 avoidance,
                 lane_info,
                 traffic_state,
                 boundary_info.all_blocked,
-                boundary_info.avoidance_angle
+                boundary_info.avoidance_angle,
+                sign_detections
             )
 
             # Apply velocity smoothing
@@ -447,8 +455,8 @@ def main():
 
     args = parser.parse_args()
 
-    # Create system
-    system = AutonomousDrivingSystem(args.config)
+    # Create system with mode parameter
+    system = AutonomousDrivingSystem(args.config, mode=args.mode)
 
     # Run based on mode
     if args.mode == 'webcam':
