@@ -1,5 +1,6 @@
 # Virtual environments
 venv/
+.venv/
 
 # Python cache and compiled files
 __pycache__/
@@ -36,3 +37,7 @@ logs/
 *.avi
 *.mkv
 *.webm
+*.jpg
+*.cache
+*.txt
+*.yaml
